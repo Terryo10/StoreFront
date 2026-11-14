@@ -4,7 +4,21 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>storefront</title>
+    <meta name="theme-color" content="#0f766e" />
+    <meta
+      name="description"
+      content="Offline-first stocktake for a self-hosted shop server."
+    />
+    <title>Stocktake</title>
+    <script>
+      try {
+        if (localStorage.getItem('stocktake.theme') === 'dark') {
+          document.documentElement.classList.add('dark')
+        }
+      } catch (error) {
+        /* Theme stays light when storage is blocked. */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
