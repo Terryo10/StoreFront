@@ -1,88 +1,157 @@
+@import "@fontsource-variable/inter";
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * Till palette. Teal is the only accent; everything else is neutral so status colours read clearly.
+ * The display block (deep teal) is the one bold surface: it carries the running total.
+ */
 :root {
   color-scheme: light;
-  --background: #f4f6f5;
-  --foreground: #14211e;
-  --card: #ffffff;
-  --muted: #3e4f4a;
-  --border: #d5dfdb;
-  --accent: #0f766e;
-  --accent-foreground: #f7fffd;
-  --danger: #9f1239;
-  --warning: #9a3412;
-  --success: #166534;
-  --info: #0c4a6e;
+  --canvas: #eceeed;
+  --surface: #ffffff;
+  --surface-sunk: #f5f7f6;
+  --ink: #18201f;
+  --ink-soft: #4d5856;
+  --rule: #cdd5d3;
+  --rule-strong: #9aa7a4;
+  --teal: #0f766e;
+  --teal-hover: #0c625b;
+  --teal-tint: #e3f1ef;
+  --on-teal: #ffffff;
+  --display: #0b3b37;
+  --display-ink: #f2fbf9;
+  --display-soft: #9cc9c2;
+
+  --st-local: #33508a;
+  --st-local-bg: #e6ebf5;
+  --st-pending: #8a5300;
+  --st-pending-bg: #fbefd9;
+  --st-synced: #17663a;
+  --st-synced-bg: #e1f2e7;
+  --st-rejected: #a3241f;
+  --st-rejected-bg: #fbe5e3;
+  --st-conflict: #6b3fa0;
+  --st-conflict-bg: #efe7f8;
 }
 
 .dark {
   color-scheme: dark;
-  --background: #101614;
-  --foreground: #e7eeeb;
-  --card: #1a2320;
-  --muted: #b7c4bf;
-  --border: #2c3a36;
-  --accent: #2dd4bf;
-  --accent-foreground: #04221e;
-  --danger: #fda4af;
-  --warning: #fdba74;
-  --success: #86efac;
-  --info: #7dd3fc;
+  --canvas: #121716;
+  --surface: #1b2220;
+  --surface-sunk: #161c1b;
+  --ink: #e6ecea;
+  --ink-soft: #a9b5b2;
+  --rule: #2e3936;
+  --rule-strong: #4c5a57;
+  --teal: #2bb3a6;
+  --teal-hover: #4cc6ba;
+  --teal-tint: #173532;
+  --on-teal: #04211e;
+  --display: #0a2f2c;
+  --display-ink: #eafaf7;
+  --display-soft: #84bdb5;
+
+  --st-local: #a9bdf0;
+  --st-local-bg: #1e2840;
+  --st-pending: #f3c06b;
+  --st-pending-bg: #3a2c12;
+  --st-synced: #7fd6a0;
+  --st-synced-bg: #15301f;
+  --st-rejected: #f4a29c;
+  --st-rejected-bg: #3d1a18;
+  --st-conflict: #cfb1f3;
+  --st-conflict-bg: #2c1f3d;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-muted: var(--muted);
-  --color-border: var(--border);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-danger: var(--danger);
-  --color-warning: var(--warning);
-  --color-success: var(--success);
-  --color-info: var(--info);
-  --font-sans: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-sunk: var(--surface-sunk);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-teal: var(--teal);
+  --color-teal-hover: var(--teal-hover);
+  --color-teal-tint: var(--teal-tint);
+  --color-on-teal: var(--on-teal);
+  --color-display: var(--display);
+  --color-display-ink: var(--display-ink);
+  --color-display-soft: var(--display-soft);
+  --color-st-local: var(--st-local);
+  --color-st-local-bg: var(--st-local-bg);
+  --color-st-pending: var(--st-pending);
+  --color-st-pending-bg: var(--st-pending-bg);
+  --color-st-synced: var(--st-synced);
+  --color-st-synced-bg: var(--st-synced-bg);
+  --color-st-rejected: var(--st-rejected);
+  --color-st-rejected-bg: var(--st-rejected-bg);
+  --color-st-conflict: var(--st-conflict);
+  --color-st-conflict-bg: var(--st-conflict-bg);
+  --font-sans: "Inter Variable", "Segoe UI", system-ui, sans-serif;
+  --font-receipt: "Consolas", "DejaVu Sans Mono", "Courier New", monospace;
 }
 
 html,
 body,
 #root {
-  min-height: 100%;
+  height: 100%;
 }
 
 body {
   margin: 0;
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--canvas);
+  color: var(--ink);
   font-family: var(--font-sans);
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.45;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
 }
 
-dialog {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  max-width: calc(100vw - 1.5rem);
-}
-
-dialog::backdrop {
-  background: rgb(15 23 20 / 0.5);
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "cv11";
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 3px solid var(--teal);
   outline-offset: 2px;
+}
+
+::selection {
+  background: var(--teal-tint);
+}
+
+@keyframes pulse-soft {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.skeleton {
+  background: var(--rule);
+  border-radius: 4px;
+  animation: pulse-soft 1.4s ease-in-out infinite;
+}
+
+@keyframes total-tick {
+  from {
+    background-color: var(--teal);
+  }
+}
+
+.total-tick {
+  animation: total-tick 380ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    scroll-behavior: auto !important;
+    animation: none !important;
     transition: none !important;
   }
 }

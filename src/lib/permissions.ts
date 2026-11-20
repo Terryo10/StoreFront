@@ -1,38 +1,68 @@
-import type { Role } from '@/domain/types'
+export const ROLES = ['cashier', 'supervisor', 'manager', 'counter'] as const
+export type Role = (typeof ROLES)[number]
 
-const ROLE_RANK: Record<Role, number> = {
-  counter: 1,
-  auditor: 2,
-  supervisor: 3,
-  manager: 4,
-  owner: 5,
+export type Permission =
+  | 'sale.ring'
+  | 'sale.discount'
+  | 'sale.void_line'
+  | 'refund.create'
+  | 'refund.approve'
+  | 'discount.approve'
+  | 'shift.manage'
+  | 'count.perform'
+  | 'count.view_expected'
+  | 'settings.server'
+
+const GRANTS: Record<Role, Permission[]> = {
+  cashier: ['sale.ring', 'sale.void_line', 'refund.create', 'shift.manage'],
+  supervisor: [
+    'sale.ring',
+    'sale.void_line',
+    'sale.discount',
+    'refund.create',
+    'refund.approve',
+    'discount.approve',
+    'shift.manage',
+    'count.perform',
+    'count.view_expected',
+  ],
+  manager: [
+    'sale.ring',
+    'sale.void_line',
+    'sale.discount',
+    'refund.create',
+    'refund.approve',
+    'discount.approve',
+    'shift.manage',
+    'count.perform',
+    'count.view_expected',
+    'settings.server',
+  ],
+  counter: ['count.perform'],
 }
 
-export function canSeeExpected(role: Role, blind: boolean): boolean {
-  if (!blind) return true
-  return ROLE_RANK[role] >= ROLE_RANK.supervisor
+/** UI hint only. The Laravel API must enforce every one of these server-side. */
+export function can(role: Role | null | undefined, permission: Permission): boolean {
+  if (!role) return false
+  return GRANTS[role].includes(permission)
 }
 
-export function canReviewVariances(role: Role): boolean {
-  return ROLE_RANK[role] >= ROLE_RANK.supervisor
+export function canSell(role: Role | null | undefined) {
+  return can(role, 'sale.ring')
 }
 
-export function canApprove(role: Role): boolean {
-  return ROLE_RANK[role] >= ROLE_RANK.manager
+export function canSeeExpectedCounts(role: Role | null | undefined, blind: boolean): boolean {
+  if (blind) return false
+  return can(role, 'count.view_expected')
 }
 
-export function canPost(role: Role): boolean {
-  return ROLE_RANK[role] >= ROLE_RANK.manager
+export function homePathFor(role: Role): string {
+  return role === 'counter' ? '/count' : '/sale'
 }
 
-export function canManageSettings(role: Role): boolean {
-  return ROLE_RANK[role] >= ROLE_RANK.manager
-}
-
-export function canCreateStocktake(role: Role): boolean {
-  return ROLE_RANK[role] >= ROLE_RANK.supervisor
-}
-
-export function canAccessBackOffice(role: Role): boolean {
-  return ROLE_RANK[role] >= ROLE_RANK.auditor
+export const ROLE_LABELS: Record<Role, string> = {
+  cashier: 'Cashier',
+  supervisor: 'Supervisor',
+  manager: 'Manager',
+  counter: 'Stock counter',
 }

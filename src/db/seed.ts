@@ -1,248 +1,228 @@
-import type { Barcode, Product, Stocktake, StocktakeLine } from '@/domain/types'
-import { createId, getOrCreateDeviceId } from '@/lib/ids'
-import { qtyString } from '@/lib/decimal'
-import { db, type AppSettings, type SyncMetadata } from './schema'
+import { defaultTillCode, getOrCreateDeviceId } from '@/lib/ids'
+import { money } from '@/lib/decimal'
+import { db, DEFAULT_PRICE_LIST } from './schema'
+import type { AppSettings, Barcode, PriceListEntry, Product, Stocktake, SyncMetadata } from './types'
 
-const CATEGORIES = [
-  'Groceries',
-  'Beverages',
-  'Household',
-  'Personal Care',
-  'Hardware',
-  'Stationery',
-  'Frozen',
-  'Bakery',
+export const SEED_VERSION = 1
+
+const CATALOGUE: Array<{ category: string; items: Array<[string, string, number]> }> = [
+  {
+    category: 'Groceries',
+    items: [
+      ['Pearlenta Mealie Meal 10kg', 'bag', 7.5],
+      ['Gold Leaf Rice 2kg', 'pack', 2.9],
+      ['Natpak Sugar 2kg', 'pack', 2.4],
+      ['Cascade Cooking Oil 2L', 'bottle', 4.8],
+      ['Lobels Cream Crackers', 'pack', 1.2],
+      ['Cerevita Original 500g', 'box', 3.1],
+      ['Kapenta Dried 250g', 'pack', 2.75],
+      ['Royco Soup Mix', 'sachet', 0.45],
+    ],
+  },
+  {
+    category: 'Beverages',
+    items: [
+      ['Mazoe Orange Crush 2L', 'bottle', 4.2],
+      ['Coca-Cola 2L', 'bottle', 1.9],
+      ['Tanganda Tea 100s', 'box', 2.6],
+      ['Dairibord Milk 1L', 'carton', 1.35],
+      ['Pfuko Maheu 500ml', 'bottle', 0.8],
+      ['Schweppes Still Water 500ml', 'bottle', 0.5],
+    ],
+  },
+  {
+    category: 'Bakery',
+    items: [
+      ['Lobels Bread Loaf', 'loaf', 1.1],
+      ['Bakers Inn Brown Loaf', 'loaf', 1.15],
+      ['Proton Rolls 6s', 'pack', 1.0],
+    ],
+  },
+  {
+    category: 'Household',
+    items: [
+      ['Surf Washing Powder 2kg', 'pack', 4.4],
+      ['Sunlight Bar Soap', 'bar', 0.9],
+      ['Doom Insect Spray', 'can', 3.6],
+      ['Matches 10 box pack', 'pack', 0.6],
+      ['Candles 6 pack', 'pack', 1.25],
+    ],
+  },
+  {
+    category: 'Personal care',
+    items: [
+      ['Colgate Toothpaste 100ml', 'tube', 1.7],
+      ['Vaseline Petroleum Jelly 250ml', 'jar', 2.3],
+      ['Protex Soap 150g', 'bar', 1.05],
+      ['Always Pads 8s', 'pack', 1.8],
+    ],
+  },
+  {
+    category: 'Snacks',
+    items: [
+      ['Willards Cheese Curls', 'pack', 0.5],
+      ['Arenel Choice Assorted', 'pack', 1.6],
+      ['Charhons Maputi', 'pack', 0.3],
+      ['Lyons Maid Ice Pop', 'each', 0.25],
+    ],
+  },
+  {
+    category: 'Airtime & misc',
+    items: [
+      ['AA Batteries 4 pack', 'pack', 2.0],
+      ['Exercise Book A4 96pg', 'each', 0.7],
+      ['Plastic Carrier Bag', 'each', 0.05],
+    ],
+  },
 ]
 
-const UNITS = ['ea', 'kg', 'l', 'pack', 'box']
-
-const PRODUCT_NAMES = [
-  'Mazoe Orange Crush',
-  'Lobels Cream Crackers',
-  'Cerevita Original',
-  'Tanganda Tea',
-  'Cascade Cooking Oil',
-  'Surf Washing Powder',
-  'Colgate Toothpaste',
-  'Coca-Cola 2L',
-  'Empire Biscuits',
-  'Willards Cheese Curls',
-  'Dairibord Milk 1L',
-  'Pearlenta Mealie Meal',
-  'Blue Ribbon Bread',
-  'Natpak Sugar 2kg',
-  'Kapenta Dried',
-  'Rice Long Grain',
-  'Sunlight Soap',
-  'Vaseline Petroleum Jelly',
-  'Batteries AA Pack',
-  'Exercise Book A4',
-]
-
-function pad(n: number, width: number) {
-  return String(n).padStart(width, '0')
-}
-
-export function generateMockCatalogue(count = 1000): {
-  products: Product[]
-  barcodes: Barcode[]
-} {
+export function generateCatalogue(count = 1000) {
+  const now = new Date().toISOString()
+  const flat = CATALOGUE.flatMap((c) => c.items.map((item) => ({ category: c.category, item })))
   const products: Product[] = []
   const barcodes: Barcode[] = []
-  const now = new Date().toISOString()
+  const prices: PriceListEntry[] = []
 
   for (let i = 1; i <= count; i++) {
-    const id = createId()
-    const nameBase = PRODUCT_NAMES[(i - 1) % PRODUCT_NAMES.length]
-    const product: Product = {
+    const base = flat[(i - 1) % flat.length]
+    const [name, unit, price] = base.item
+    const round = Math.floor((i - 1) / flat.length)
+    const id = `prd-${String(i).padStart(5, '0')}`
+    products.push({
       id,
-      sku: `ZW-${pad(i, 5)}`,
-      name: `${nameBase} #${i}`,
-      unit: UNITS[(i - 1) % UNITS.length],
-      category: CATEGORIES[(i - 1) % CATEGORIES.length],
-      catalogueNumber: i,
-      active: i % 47 !== 0,
+      sku: `ZW${String(i).padStart(5, '0')}`,
+      name: round === 0 ? name : `${name} (lot ${round + 1})`,
+      category: base.category,
+      unit,
+      active: true,
       updatedAt: now,
       source: 'demo-seed',
-    }
-    products.push(product)
-    barcodes.push({
-      id: createId(),
+    })
+    barcodes.push({ code: `6009${String(i).padStart(9, '0')}`, productId: id, isPrimary: true })
+    if (i % 25 === 0) barcodes.push({ code: `ALT${String(i).padStart(7, '0')}`, productId: id, isPrimary: false })
+    prices.push({
+      id: `${DEFAULT_PRICE_LIST}:${id}:USD`,
+      priceListId: DEFAULT_PRICE_LIST,
       productId: id,
-      code: `6039${pad(i, 9)}`,
-      isPrimary: true,
+      currency: 'USD',
+      price: money(price + round * 0.05),
+      updatedAt: now,
+      source: 'demo-seed',
     })
-    if (i % 11 === 0) {
-      barcodes.push({
-        id: createId(),
-        productId: id,
-        code: `ALT${pad(i, 8)}`,
-        isPrimary: false,
-      })
-    }
   }
-
-  return { products, barcodes }
+  return { products, barcodes, prices }
 }
 
-const DEMO_SEED_VERSION = 1
+export function defaultSettings(deviceId: string): AppSettings {
+  return {
+    id: 'app',
+    apiMode: import.meta.env.VITE_API_MODE === 'live' ? 'live' : 'mock',
+    apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000',
+    tillCode: defaultTillCode(deviceId),
+    storeName: 'Demo store, Harare',
+    currencies: ['USD', 'ZWG'],
+    defaultExchangeRate: import.meta.env.VITE_DEFAULT_ZWG_RATE || '26.80',
+    zigRoundingStep: '0.05',
+    allowLineDiscounts: true,
+    scannerSuffix: 'Enter',
+    scannerMinLength: 4,
+    scannerMaxInterKeyMs: 35,
+    printer: { kind: 'mock', host: '192.168.1.50', port: 9100, devicePath: '', widthChars: 42, mockFailure: false },
+    autoPrint: true,
+    theme: 'light',
+    seedVersion: 0,
+  }
+}
 
-export async function ensureSeeded(): Promise<void> {
+export async function ensureBaseline(): Promise<void> {
   const deviceId = getOrCreateDeviceId()
+
+  await db.transaction('rw', db.settings, db.syncMetadata, async () => {
+    if (!(await db.settings.get('app'))) await db.settings.put(defaultSettings(deviceId))
+    const meta = await db.syncMetadata.get('device')
+    if (!meta) {
+      const fresh: SyncMetadata = {
+        id: 'device',
+        deviceId,
+        deviceSequence: 0,
+        shiftCounter: 0,
+        lastPushAttemptAt: null,
+        lastSuccessfulPushAt: null,
+        lastPushError: null,
+        authBlocked: false,
+        lastPullAttemptAt: null,
+        lastPullDetail: null,
+        pullAvailable: false,
+        catalogueUpdatedAt: null,
+        catalogueSource: 'demo-seed',
+      }
+      await db.syncMetadata.put(fresh)
+    } else if (meta.deviceId !== deviceId) {
+      // IndexedDB is authoritative: restore the localStorage mirror instead of forking the device id.
+      try {
+        localStorage.setItem('pos.deviceId', meta.deviceId)
+      } catch {
+        /* storage blocked */
+      }
+    }
+  })
+}
+
+/** Mock mode only: fills the local catalogue with 1,000 demo products and a few stocktakes. */
+export async function seedDemoData(): Promise<void> {
   const settings = await db.settings.get('app')
-  const meta = await db.syncMetadata.get('device')
+  if (!settings || settings.seedVersion >= SEED_VERSION) return
+  const { products, barcodes, prices } = generateCatalogue(1000)
+  const now = new Date().toISOString()
 
-  if (!settings) {
-    const defaultSettings: AppSettings = {
-      id: 'app',
-      apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000',
-      apiMode: (import.meta.env.VITE_API_MODE as 'mock' | 'live') || 'mock',
-      scannerMode: 'hid',
-      replaceDefault: true,
-      theme: 'light',
-      offlinePolicyNote:
-        'Counts are saved locally first. Sync is manual/foreground until Background Sync is reliable on this device.',
-      demoSeedVersion: 0,
-    }
-    await db.settings.put(defaultSettings)
-  } else if (settings.demoSeedVersion == null) {
-    await db.settings.update('app', { demoSeedVersion: 0 })
-  }
-
-  if (!meta) {
-    const syncMeta: SyncMetadata = {
-      id: 'device',
-      deviceId,
-      deviceSequence: 0,
-      lastSuccessfulPushAt: null,
-      lastAckDeviceSequence: null,
-      lastPullAttemptAt: null,
-      lastPullDetail: 'Server pull not available — catalogue may be stale.',
-      pullAvailable: false,
-    }
-    await db.syncMetadata.put(syncMeta)
-  } else if (meta.deviceId !== deviceId) {
-    await db.syncMetadata.update('device', { deviceId })
-  }
-
-  const current = (await db.settings.get('app'))!
-  if ((current.demoSeedVersion ?? 0) >= DEMO_SEED_VERSION && (await db.products.count()) > 0) {
-    return
-  }
-
-  if ((await db.products.count()) === 0) {
-    const { products, barcodes } = generateMockCatalogue(1000)
-    await db.transaction('rw', db.products, db.barcodes, db.inventoryBalances, async () => {
-      await db.products.bulkPut(products)
-      await db.barcodes.bulkPut(barcodes)
-      await db.inventoryBalances.bulkPut(
-        products.slice(0, 200).map((p, idx) => ({
-          id: `${p.id}:loc-shopfloor`,
-          productId: p.id,
-          locationId: 'loc-shopfloor',
-          quantity: qtyString((idx % 40) + 1),
-          asOf: new Date().toISOString(),
-          source: 'demo-seed' as const,
-        })),
-      )
-    })
-  }
-
-  if ((await db.stocktakes.count()) === 0) {
-    await seedDemoStocktakes()
-  }
-
-  await db.settings.update('app', { demoSeedVersion: DEMO_SEED_VERSION })
+  await db.transaction('rw', [db.products, db.barcodes, db.priceLists, db.stocktakes, db.settings, db.syncMetadata], async () => {
+    await db.products.bulkPut(products)
+    await db.barcodes.bulkPut(barcodes)
+    await db.priceLists.bulkPut(prices)
+    if ((await db.stocktakes.count()) === 0) await db.stocktakes.bulkPut(demoStocktakes(now))
+    await db.syncMetadata.update('device', { catalogueUpdatedAt: now, catalogueSource: 'demo-seed' })
+    await db.settings.update('app', { seedVersion: SEED_VERSION })
+  })
 }
 
-async function seedDemoStocktakes() {
-  const products = await db.products.orderBy('catalogueNumber').limit(80).toArray()
-  const now = new Date()
-  const draftId = createId()
-  const countingId = createId()
-  const submittedId = createId()
-
-  const mk = (
-    id: string,
-    name: string,
-    status: Stocktake['status'],
-    extras: Partial<Stocktake> = {},
-  ): Stocktake => ({
-    id,
-    branchId: 'branch-harare-cbd',
-    branchName: 'Harare CBD',
-    name,
-    scope: 'partial',
-    blind: true,
-    status,
-    locationId: 'loc-shopfloor',
-    locationName: 'Shop floor',
-    createdAt: now.toISOString(),
-    startedAt: status === 'draft' ? null : now.toISOString(),
-    submittedAt: status === 'submitted' || status === 'approved' || status === 'posted' ? now.toISOString() : null,
-    approvedAt: null,
-    postedAt: null,
-    version: 1,
-    staleInventory: false,
-    serverState: 'demo',
-    lastError: null,
-    audit: [
-      {
-        id: createId(),
-        at: now.toISOString(),
-        actor: 'Demo seed',
-        action: 'created',
-        detail: 'Seeded for offline demo',
-        source: 'demo-seed',
-      },
-    ],
-    ...extras,
-  })
-
-  const stocktakes = [
-    mk(draftId, 'March dry goods check', 'draft'),
-    mk(countingId, 'Weekend full count — in progress', 'counting', {
-      scope: 'full',
-      name: 'Weekend full count — in progress',
-    }),
-    mk(submittedId, 'Beverages aisle (submitted)', 'submitted', {
+function demoStocktakes(now: string): Stocktake[] {
+  const base = {
+    createdAt: now,
+    submittedAt: null,
+    submitEventId: null,
+    serverState: 'demo' as const,
+    source: 'demo-seed' as const,
+  }
+  return [
+    {
+      ...base,
+      id: 'stk-blind-shelf',
+      name: 'Aisle 3 groceries',
+      locationName: 'Shop floor',
       blind: true,
-      scope: 'partial',
-    }),
+      status: 'assigned',
+      assignedTo: 'counter',
+      expected: null,
+    },
+    {
+      ...base,
+      id: 'stk-blind-store',
+      name: 'Back store full count',
+      locationName: 'Storeroom',
+      blind: true,
+      status: 'open',
+      assignedTo: null,
+      expected: null,
+    },
+    {
+      ...base,
+      id: 'stk-open-bev',
+      name: 'Beverages spot check (open count)',
+      locationName: 'Fridge bay',
+      blind: false,
+      status: 'open',
+      assignedTo: null,
+      expected: { 'prd-00009': '24', 'prd-00010': '36', 'prd-00011': '12' },
+    },
   ]
-
-  const lines: StocktakeLine[] = []
-  for (const st of stocktakes) {
-    const slice = products.slice(0, st.scope === 'full' ? 60 : 30)
-    for (const p of slice) {
-      const balance = await db.inventoryBalances.get(`${p.id}:loc-shopfloor`)
-      lines.push({
-        id: createId(),
-        stocktakeId: st.id,
-        productId: p.id,
-        locationId: st.locationId,
-        expectedQty: balance?.quantity ?? qtyString((p.catalogueNumber ?? 1) % 25),
-        expectedSource: 'demo-seed',
-        countedQty: null,
-        countEventCount: 0,
-      })
-    }
-  }
-
-  await db.transaction('rw', db.stocktakes, db.stocktakeLines, async () => {
-    await db.stocktakes.bulkPut(stocktakes)
-    await db.stocktakeLines.bulkPut(lines)
-  })
 }
-
-export const BRANCHES = [
-  { id: 'branch-harare-cbd', name: 'Harare CBD' },
-  { id: 'branch-bulawayo', name: 'Bulawayo Main' },
-  { id: 'branch-mutare', name: 'Mutare' },
-]
-
-export const LOCATIONS = [
-  { id: 'loc-shopfloor', name: 'Shop floor' },
-  { id: 'loc-backstore', name: 'Back store' },
-  { id: 'loc-coldroom', name: 'Cold room' },
-]

@@ -1,94 +1,81 @@
 import { create } from 'zustand'
-import type { Role, Session } from '@/domain/types'
+import { getApiConfig, login as apiLogin, logout as apiLogout } from '@/api'
 import { db } from '@/db/schema'
-import { createId } from '@/lib/ids'
+import type { LocalSession } from '@/db/types'
+import type { Role } from '@/lib/permissions'
+import { track } from '@/lib/telemetry'
+import { clearToken, loadToken, saveToken, type TokenStorageKind } from '@/services/secure-token'
+import { clearAuthBlock } from '@/services/sync-engine'
+
+export interface Session {
+  userId: string
+  name: string
+  email: string
+  role: Role
+  authMode: 'mock' | 'sanctum'
+}
 
 interface AuthState {
   session: Session | null
-  ready: boolean
+  tokenStorage: TokenStorageKind | null
   hydrate: () => Promise<void>
-  mockLogin: (email: string, role: Role, name?: string) => Promise<void>
-  logout: () => Promise<void>
+  signIn: (email: string, password: string) => Promise<Session>
+  signOut: () => Promise<void>
 }
 
-const DEMO_USERS: Array<{ email: string; role: Role; name: string; password: string }> = [
-  { email: 'owner@demo.local', role: 'owner', name: 'Demo Owner', password: 'demo' },
-  { email: 'manager@demo.local', role: 'manager', name: 'Demo Manager', password: 'demo' },
-  { email: 'supervisor@demo.local', role: 'supervisor', name: 'Demo Supervisor', password: 'demo' },
-  { email: 'counter@demo.local', role: 'counter', name: 'Demo Counter', password: 'demo' },
-  { email: 'auditor@demo.local', role: 'auditor', name: 'Demo Auditor', password: 'demo' },
-]
+function fromRow(row: LocalSession): Session {
+  return { userId: row.userId, name: row.name, email: row.email, role: row.role, authMode: row.authMode }
+}
 
-export { DEMO_USERS }
-
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuth = create<AuthState>((set) => ({
   session: null,
-  ready: false,
+  tokenStorage: null,
 
   hydrate: async () => {
     const row = await db.session.get('session')
-    if (!row) {
-      set({ session: null, ready: true })
-      return
+    if (!row) return set({ session: null })
+    if (row.authMode === 'sanctum') {
+      // A real session is only restored if its token is still in secure storage.
+      const token = await loadToken()
+      if (!token) {
+        await db.session.delete('session')
+        return set({ session: null })
+      }
     }
-    set({
-      session: {
-        userId: row.userId,
-        name: row.name,
-        email: row.email,
-        role: row.role,
-        token: row.token,
-        authMode: row.authMode,
-      },
-      ready: true,
-    })
+    set({ session: fromRow(row) })
   },
 
-  mockLogin: async (email, role, name) => {
-    const match = DEMO_USERS.find((u) => u.email === email) ?? {
-      email,
-      role,
-      name: name ?? email,
-      password: 'demo',
-    }
-    const session: Session = {
-      userId: createId(),
-      name: match.name,
-      email: match.email,
-      role: match.role,
-      // Mock token only — never store real privileged credentials unencrypted.
-      token: `mock.${createId()}`,
-      authMode: 'mock',
-    }
-    await db.session.put({
+  signIn: async (email, password) => {
+    const res = await apiLogin(email, password)
+    const mode = getApiConfig().mode
+    let storage: TokenStorageKind | null = null
+    if (mode === 'live') storage = await saveToken(res.token)
+    const row: LocalSession = {
       id: 'session',
-      ...session,
+      userId: res.user.id,
+      name: res.user.name,
+      email: res.user.email,
+      role: res.user.role,
+      authMode: mode === 'live' ? 'sanctum' : 'mock',
+      mockToken: mode === 'live' ? null : res.token,
       loggedInAt: new Date().toISOString(),
-    })
-    set({ session })
+    }
+    await db.session.put(row)
+    await clearAuthBlock()
+    const session = fromRow(row)
+    track('auth.signed_in', { role: session.role, mode })
+    set({ session, tokenStorage: storage })
+    return session
   },
 
-  logout: async () => {
+  signOut: async () => {
+    await apiLogout()
+    await clearToken()
     await db.session.delete('session')
-    set({ session: null })
+    set({ session: null, tokenStorage: null })
   },
 }))
 
-export async function attemptLogin(email: string, password: string): Promise<Session> {
-  const settings = await db.settings.get('app')
-  const mode = settings?.apiMode ?? 'mock'
-
-  if (mode === 'mock') {
-    const user = DEMO_USERS.find((u) => u.email === email)
-    if (!user || user.password !== password) {
-      throw new Error('Invalid demo credentials. Use *@demo.local / demo')
-    }
-    await useAuthStore.getState().mockLogin(user.email, user.role, user.name)
-    return useAuthStore.getState().session!
-  }
-
-  // Production Sanctum adapter stub — backend auth is not verified yet.
-  throw new Error(
-    'Live Sanctum authentication is not wired: backend login endpoint is not verified. Switch API mode to mock for local demo.',
-  )
+export function actorOf(session: Session) {
+  return { id: session.userId, name: session.name }
 }

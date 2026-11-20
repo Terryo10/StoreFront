@@ -1,39 +1,47 @@
-# Backend gaps (frontend assumptions)
+# What the Laravel server still needs
 
-The Laravel + PostgreSQL API was **not present / not verified** in this workspace. The frontend runs fully in **mock mode** against IndexedDB, and can point at a LAN host in **live mode** without pretending missing features work.
+The till was built without a running backend. Every endpoint it calls is **assumed**, and the
+payloads are proposed in [docs/API_ASSUMPTIONS.md](docs/API_ASSUMPTIONS.md). In mock mode, a local
+adapter (`src/api/mock.ts`) stands in for the server. In live mode the till calls the URLs below. If
+an endpoint is missing, the till shows the error; it never pretends the call worked.
 
-## Missing or incomplete on server (do not silently fake success)
+## Endpoints to build
 
-| Capability | Frontend behaviour |
-|------------|--------------------|
-| `GET /api/v1/sync/pull` | Prominent “server pull not available” banner; catalogue marked potentially stale |
-| Authentication (Sanctum) | Mock login only; live login throws until endpoint verified |
-| Device enrollment | Sync monitor shows “pending devices: not available” |
-| Role enforcement | UI hides privileged screens; always notes backend auth is mandatory |
-| Zone / counter assignments | Create wizard disables assignment controls with explanation |
-| CSV product import | Local CSV import into IndexedDB (`source: csv-local`); server import button disabled |
-| Safe multi-counter conflict policy | Mock fault injection can simulate 409; events kept as `conflict` for manager review |
-| Authoritative approve/post | Local status transitions only; `serverState` stays `local-only` / `mock-accepted` until real responses |
+| Endpoint | Used for | What the till does if it is missing |
+|---|---|---|
+| `GET /up` | Connection check and sync loop | Shows the server as unreachable. Sales still save locally. Laravel 11 includes this route by default. |
+| `POST /api/v1/auth/login` | Sanctum sign-in that returns `{ token, user: { role } }` | Sign-in fails with the server's error. Nobody can sign in in live mode. |
+| `POST /api/v1/auth/logout` | Revoke the token | Ignored. The local token is discarded anyway. |
+| `POST /api/v1/auth/approve` | Supervisor email and PIN approval for refunds and discounts | The approval fails, so refunds and discounts can't be approved by someone else. A supervisor who is signed in can still act. |
+| `GET /api/v1/products` (paginated) | Full catalogue download | Keeps the last catalogue and shows when it was last updated. |
+| `GET /api/v1/products/lookup?barcode=` | Fallback for barcodes not in the local catalogue | Treated as not found. |
+| `GET /api/v1/sync/pull?checkpoint=` | Incremental price and catalogue updates | Shows a "Prices may be out of date" notice and offers a full download. 404, 405 and 501 count as "not built yet". |
+| `POST /api/v1/sync/push` | All till events | Events wait in the outbox, with retry and backoff. Nothing is marked synced. |
+| `GET /api/v1/stocktakes` | Counts assigned to the signed-in user | Keeps the counts already on the device. |
+| `POST /api/v1/stocktakes/{id}/start` | Mark a count as started | Ignored. Counting continues offline. |
 
-## Partially expected routes
+## Rules the push endpoint must follow
 
-These are called by the typed live client when `VITE_API_MODE=live`:
+1. **Idempotent by `event_id`.** The till resends events whenever a response is lost. The server must acknowledge a duplicate again and never apply it twice. A unique index on `event_id` is the simplest way to guarantee this.
+2. **Return one result for every event sent.** An event missing from the results stays pending and is sent again.
+3. **Reject with a reason.** Use `{ status: "rejected", error: { code, message } }`. Use `code: "conflict"` when a supervisor has to decide, for example a refund against a sale another till already refunded, or a sale on a shift the server has closed. Rejected and conflicting events are kept on the till and shown on the Sync screen. They are never deleted.
+4. **Accept all event types:** `sale.completed`, `sale.voided`, `sale.refunded`, `shift.opened`, `shift.closed`, `stocktake.count.recorded`, `stocktake.exception.recorded` and `stocktake.submitted`.
+5. **Order within a device by `device_sequence`.** Sequences are gapless and increase steadily per device. A gap means an event is still on its way, not that it was lost.
+6. **Reply 401 or 403 only for real authentication problems.** The till pauses automatic sync on those responses until someone signs in again.
 
-- `GET /api/v1/products`, `GET /api/v1/products/lookup?barcode=`
-- `GET/POST /api/v1/stocktakes`, `GET /api/v1/stocktakes/:id`
-- `POST .../start`, `.../counts`, `.../submit`, `.../variances`, `.../approve`, `.../post`
-- `POST /api/v1/sync/push` (provisional event envelope documented in `docs/API.md`)
+## Rules the server must enforce, not the till
 
-## Sync contract notes
+- **Authorisation.** The till hides screens and buttons by role (cashier, supervisor, manager, counter), but anyone with a token could call the API directly. Check the role on every endpoint and every event: who may refund, discount, close a shift or see expected quantities.
+- **Approvals.** `approved_by` and `discount_approved_by` in event payloads are claims made by the till. Check that the approver exists, holds the right role, and actually approved the action (for example, by recording approvals from `/auth/approve`).
+- **Prices and totals.** Recalculate line totals and payments from the event. Reject or flag anything that does not add up.
+- **Blind counts.** Do not send `expected` quantities to the `counter` role at all.
 
-Push accepts count events with `event_id`, `device_id`, `device_sequence`, and payload quantity as a **decimal string**. The frontend:
+## Features with no server design yet
 
-- Never marks an event synced unless that exact `event_id` returns `acknowledged`
-- Never drops `rejected` / conflict events
-- Does not retry 401/403 indefinitely
-- Requires manual/foreground sync (Background Sync not assumed)
-
-## Quantity & ID rules
-
-- Quantities: decimal strings, scale 6, arithmetic via `decimal.js`
-- IDs: UUIDs; device UUID in `localStorage`; monotonic `deviceSequence` updated in the same IndexedDB transaction as the outbox append
+- **Device enrolment.** The till creates its own device UUID and till code (shown in Settings). There is no enrolment or registration step, so the server can't tell a known till from an unknown one.
+- **Final receipt numbers.** Receipt numbers are provisional: the till prefix, the shift number and a sequence, for example `T01-0003-0012`. If the business needs a single numbering sequence across all tills, the server must assign the final numbers and the till needs a way to receive them.
+- **Returns from another till.** Returns search only the sales stored on this device. Refunding a receipt from another till needs a server receipt lookup endpoint.
+- **Offline supervisor approval.** Approval needs the server. While offline, only a supervisor or manager who is signed in can approve. A signed offline approval (for example, a PIN hash pushed to the device) has not been designed.
+- **Resolving conflicts.** The till can re-send a conflicting event with the same ID, or keep it for review. The real resolution (override, cancel, merge) belongs in the back office.
+- **Exchange rates.** The ZiG rate is entered by hand for each shift. A server endpoint for the daily rate would let the till suggest it.
+- **Fiscalisation.** Out of scope. `src/services/fiscal.ts` is the extension point, and `payload.fiscal` carries its output.

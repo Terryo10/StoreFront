@@ -1,29 +1,44 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
-import { BackOfficeLayout } from './layouts/BackOfficeLayout'
-import { MobileCountLayout } from './layouts/MobileCountLayout'
+import type { ReactNode } from 'react'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { useAuth } from '@/features/auth/auth-store'
 import { LoginPage } from '@/features/auth/LoginPage'
-import { useAuthStore } from '@/features/auth/auth-store'
-import { DashboardPage } from '@/features/dashboard/DashboardPage'
-import { ProductsPage } from '@/features/products/ProductsPage'
-import { StocktakesPage } from '@/features/stocktakes/StocktakesPage'
-import { CreateStocktakePage } from '@/features/stocktakes/CreateStocktakePage'
-import { StocktakeDetailPage } from '@/features/stocktakes/StocktakeDetailPage'
-import { VariancesPage } from '@/features/variances/VariancesPage'
-import { SyncMonitorPage } from '@/features/sync/SyncMonitorPage'
+import { OpenShiftPage } from '@/features/shift/OpenShiftPage'
+import { CloseShiftPage } from '@/features/shift/CloseShiftPage'
+import { SalePage } from '@/features/sale/SalePage'
+import { ReturnsPage } from '@/features/returns/ReturnsPage'
+import { HistoryPage } from '@/features/history/HistoryPage'
+import { CountListPage } from '@/features/counting/CountListPage'
+import { CountScreen } from '@/features/counting/CountScreen'
+import { SyncPage } from '@/features/sync/SyncPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
-import { CountSessionsPage } from '@/features/counting/CountSessionsPage'
-import { ScannerScreen } from '@/features/counting/ScannerScreen'
-import { CountHistoryPage } from '@/features/counting/CountHistoryPage'
-import { SubmitSessionPage } from '@/features/counting/SubmitSessionPage'
+import { can, homePathFor, type Permission } from '@/lib/permissions'
+import { TillLayout } from './TillLayout'
+import { useOpenShift } from './hooks'
 
-function RequireAuth({ children }: { children: React.ReactNode }) {
-  const session = useAuthStore((s) => s.session)
-  const ready = useAuthStore((s) => s.ready)
-  if (!ready) {
-    return <div className="grid min-h-screen place-items-center text-sm text-muted">Loading…</div>
-  }
-  if (!session) return <Navigate to="/login" replace />
-  return children
+function RequireAuth({ children }: { children: ReactNode }) {
+  const session = useAuth((s) => s.session)
+  const location = useLocation()
+  if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  return <>{children}</>
+}
+
+function RequirePermission({ permission, children }: { permission: Permission; children: ReactNode }) {
+  const session = useAuth((s) => s.session)
+  if (!session) return null
+  if (!can(session.role, permission)) return <Navigate to={homePathFor(session.role)} replace />
+  return <>{children}</>
+}
+
+function RequireShift({ children }: { children: ReactNode }) {
+  const shift = useOpenShift()
+  if (shift === undefined) return null
+  if (shift === null) return <Navigate to="/shift/open" replace />
+  return <>{children}</>
+}
+
+function Home() {
+  const session = useAuth((s) => s.session)
+  return <Navigate to={session ? homePathFor(session.role) : '/login'} replace />
 }
 
 export function AppRouter() {
@@ -31,36 +46,24 @@ export function AppRouter() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route
-        path="/"
         element={
           <RequireAuth>
-            <BackOfficeLayout />
+            <TillLayout />
           </RequireAuth>
         }
       >
-        <Route index element={<DashboardPage />} />
-        <Route path="products" element={<ProductsPage />} />
-        <Route path="stocktakes" element={<StocktakesPage />} />
-        <Route path="stocktakes/new" element={<CreateStocktakePage />} />
-        <Route path="stocktakes/:id" element={<StocktakeDetailPage />} />
-        <Route path="variances" element={<VariancesPage />} />
-        <Route path="sync" element={<SyncMonitorPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route index element={<Home />} />
+        <Route path="/shift/open" element={<RequirePermission permission="shift.manage"><OpenShiftPage /></RequirePermission>} />
+        <Route path="/shift/close" element={<RequirePermission permission="shift.manage"><CloseShiftPage /></RequirePermission>} />
+        <Route path="/sale" element={<RequirePermission permission="sale.ring"><RequireShift><SalePage /></RequireShift></RequirePermission>} />
+        <Route path="/returns" element={<RequirePermission permission="refund.create"><RequireShift><ReturnsPage /></RequireShift></RequirePermission>} />
+        <Route path="/history" element={<RequirePermission permission="sale.ring"><HistoryPage /></RequirePermission>} />
+        <Route path="/count" element={<RequirePermission permission="count.perform"><CountListPage /></RequirePermission>} />
+        <Route path="/count/:stocktakeId" element={<RequirePermission permission="count.perform"><CountScreen /></RequirePermission>} />
+        <Route path="/sync" element={<SyncPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
-      <Route
-        path="/count"
-        element={
-          <RequireAuth>
-            <MobileCountLayout />
-          </RequireAuth>
-        }
-      >
-        <Route index element={<CountSessionsPage />} />
-        <Route path=":stocktakeId" element={<ScannerScreen />} />
-        <Route path=":stocktakeId/history" element={<CountHistoryPage />} />
-        <Route path=":stocktakeId/submit" element={<SubmitSessionPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Home />} />
     </Routes>
   )
 }

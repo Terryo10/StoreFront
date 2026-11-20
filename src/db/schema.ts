@@ -1,156 +1,74 @@
-import Dexie, { type EntityTable, type Table } from 'dexie'
+import Dexie, { type EntityTable as DexieTable } from 'dexie'
 import type {
+  ActiveCart,
+  AppSettings,
   AuditEntry,
   Barcode,
+  ConflictRecord,
   CountEvent,
-  InventoryBalance,
+  CountException,
+  HeldSale,
+  LocalSession,
+  OutboxEvent,
+  Payment,
+  PriceListEntry,
   Product,
-  Role,
+  Sale,
+  SaleLine,
+  Shift,
   Stocktake,
-  StocktakeLine,
-  SyncVisualStatus,
-} from '@/domain/types'
+  SyncMetadata,
+} from './types'
 
-export type OutboxStatus = 'pending' | 'syncing' | 'acknowledged' | 'rejected' | 'conflict'
+export const DB_NAME = 'zw_pos'
 
-export interface OutboxEvent {
-  id: string
-  deviceId: string
-  deviceSequence: number
-  eventType: 'stocktake.count.recorded'
-  stocktakeId: string
-  productId: string
-  locationId: string
-  quantity: string
-  mode: 'add' | 'replace'
-  observedAt: string
-  baseVersion: number | null
-  status: OutboxStatus
-  attemptCount: number
-  lastError: string | null
-  nextAttemptAt: string | null
-  createdAt: string
-  updatedAt: string
-}
+export class PosDB extends Dexie {
+  products!: DexieTable<Product, 'id'>
+  barcodes!: DexieTable<Barcode, 'code'>
+  priceLists!: DexieTable<PriceListEntry, 'id'>
+  sales!: DexieTable<Sale, 'id'>
+  saleLines!: DexieTable<SaleLine, 'id'>
+  payments!: DexieTable<Payment, 'id'>
+  shifts!: DexieTable<Shift, 'id'>
+  heldSales!: DexieTable<HeldSale, 'id'>
+  activeCart!: DexieTable<ActiveCart, 'id'>
+  stocktakes!: DexieTable<Stocktake, 'id'>
+  countEvents!: DexieTable<CountEvent, 'id'>
+  countExceptions!: DexieTable<CountException, 'id'>
+  outbox!: DexieTable<OutboxEvent, 'id'>
+  syncMetadata!: DexieTable<SyncMetadata, 'id'>
+  conflicts!: DexieTable<ConflictRecord, 'id'>
+  settings!: DexieTable<AppSettings, 'id'>
+  session!: DexieTable<LocalSession, 'id'>
+  auditLog!: DexieTable<AuditEntry, 'id'>
 
-export interface ConflictRecord {
-  id: string
-  outboxEventId: string
-  stocktakeId: string
-  productId: string
-  code: string
-  message: string
-  createdAt: string
-  resolvedAt: string | null
-  resolution: string | null
-}
+  constructor(name = DB_NAME) {
+    super(name)
 
-export interface SyncMetadata {
-  id: 'device'
-  deviceId: string
-  deviceSequence: number
-  lastSuccessfulPushAt: string | null
-  lastAckDeviceSequence: number | null
-  lastPullAttemptAt: string | null
-  lastPullDetail: string | null
-  pullAvailable: boolean
-}
-
-export interface AppSettings {
-  id: 'app'
-  apiBaseUrl: string
-  apiMode: 'mock' | 'live'
-  scannerMode: 'hid' | 'camera' | 'manual'
-  replaceDefault: boolean
-  theme: 'light' | 'dark' | 'system'
-  offlinePolicyNote: string
-  demoSeedVersion: number
-}
-
-export interface UnknownBarcodeHold {
-  id: string
-  code: string
-  stocktakeId: string
-  observedAt: string
-  note: string | null
-  status: 'held' | 'resolved'
-}
-
-export interface LocalSession {
-  id: 'session'
-  userId: string
-  name: string
-  email: string
-  role: Role
-  token: string
-  authMode: 'mock' | 'sanctum'
-  loggedInAt: string
-}
-
-export interface CountView {
-  id: string
-  stocktakeId: string
-  productId: string
-  locationId: string
-  quantity: string
-  lastEventId: string
-  updatedAt: string
-  syncStatus: SyncVisualStatus
-}
-
-export class StocktakeDB extends Dexie {
-  products!: EntityTable<Product, 'id'>
-  barcodes!: EntityTable<Barcode, 'id'>
-  stocktakes!: EntityTable<Stocktake, 'id'>
-  stocktakeLines!: EntityTable<StocktakeLine, 'id'>
-  countEvents!: EntityTable<CountEvent, 'id'>
-  countViews!: EntityTable<CountView, 'id'>
-  outbox!: EntityTable<OutboxEvent, 'id'>
-  syncMetadata!: EntityTable<SyncMetadata, 'id'>
-  conflicts!: EntityTable<ConflictRecord, 'id'>
-  settings!: EntityTable<AppSettings, 'id'>
-  inventoryBalances!: EntityTable<InventoryBalance, 'id'>
-  unknownBarcodes!: EntityTable<UnknownBarcodeHold, 'id'>
-  session!: EntityTable<LocalSession, 'id'>
-  auditLog!: Table<AuditEntry, string>
-
-  constructor() {
-    super('stocktake_v1')
-
+    // Migrations: never edit a shipped version. Add `this.version(n + 1)` with an upgrade function.
     this.version(1).stores({
-      products: 'id, sku, name, category, active, updatedAt',
-      barcodes: 'id, productId, code, isPrimary',
-      stocktakes: 'id, status, branchId, createdAt, name',
-      stocktakeLines: 'id, stocktakeId, productId, locationId',
-      countEvents: 'id, stocktakeId, productId, deviceSequence, observedAt, syncStatus',
-      countViews: 'id, stocktakeId, productId, locationId, updatedAt, syncStatus',
-      outbox: 'id, status, deviceSequence, stocktakeId, nextAttemptAt, createdAt',
-      syncMetadata: 'id, deviceId',
-      conflicts: 'id, outboxEventId, stocktakeId, createdAt, resolvedAt',
+      products: 'id, sku, name, category, active',
+      barcodes: 'code, productId',
+      priceLists: 'id, [priceListId+productId], productId',
+      sales: 'id, receiptNumber, shiftId, kind, originalSaleId, completedAt, syncState, outboxEventId',
+      saleLines: 'id, saleId, productId',
+      payments: 'id, saleId, method',
+      shifts: 'id, status, cashierId, openedAt',
+      heldSales: 'id, shiftId, heldAt',
+      activeCart: 'id',
+      stocktakes: 'id, status, assignedTo',
+      countEvents: 'id, stocktakeId, [stocktakeId+productId], observedAt',
+      countExceptions: 'id, stocktakeId, barcode',
+      outbox: 'id, status, deviceSequence, type, entityId, [status+deviceSequence]',
+      syncMetadata: 'id',
+      conflicts: 'id, outboxEventId, resolvedAt',
       settings: 'id',
-      inventoryBalances: 'id, productId, locationId',
-      unknownBarcodes: 'id, code, stocktakeId, status, observedAt',
       session: 'id',
-      auditLog: 'id, at, action',
-    })
-
-    this.version(2).stores({
-      products: 'id, sku, name, category, catalogueNumber, active, updatedAt',
-      barcodes: 'id, productId, code, isPrimary',
-      stocktakes: 'id, status, branchId, createdAt, name',
-      stocktakeLines: 'id, stocktakeId, productId, locationId, [stocktakeId+productId]',
-      countEvents: 'id, stocktakeId, productId, deviceSequence, observedAt, syncStatus',
-      countViews: 'id, stocktakeId, productId, locationId, lastEventId, updatedAt, syncStatus',
-      outbox: 'id, status, deviceSequence, stocktakeId, nextAttemptAt, createdAt',
-      syncMetadata: 'id, deviceId',
-      conflicts: 'id, outboxEventId, stocktakeId, createdAt, resolvedAt',
-      settings: 'id',
-      inventoryBalances: 'id, productId, locationId',
-      unknownBarcodes: 'id, code, stocktakeId, status, observedAt',
-      session: 'id',
-      auditLog: 'id, at, action',
+      auditLog: 'id, at, action, shiftId',
     })
   }
 }
 
-export const db = new StocktakeDB()
+export const db = new PosDB()
+
+export const DEFAULT_PRICE_LIST = 'retail'

@@ -9,8 +9,7 @@ export interface StorageStatus {
 export async function requestPersistentStorage(): Promise<boolean | null> {
   if (!navigator.storage?.persist) return null
   try {
-    const already = await navigator.storage.persisted()
-    if (already) return true
+    if (await navigator.storage.persisted()) return true
     return await navigator.storage.persist()
   } catch {
     return null
@@ -21,16 +20,11 @@ export async function getStorageStatus(): Promise<StorageStatus> {
   let persisted: boolean | null = null
   let usage: number | null = null
   let quota: number | null = null
-  let warning: string | null = null
-
   try {
-    if (navigator.storage?.persisted) {
-      persisted = await navigator.storage.persisted()
-    }
+    if (navigator.storage?.persisted) persisted = await navigator.storage.persisted()
   } catch {
     persisted = null
   }
-
   try {
     if (navigator.storage?.estimate) {
       const est = await navigator.storage.estimate()
@@ -38,18 +32,13 @@ export async function getStorageStatus(): Promise<StorageStatus> {
       quota = est.quota ?? null
     }
   } catch {
-    /* ignore */
+    /* estimate unsupported */
   }
-
   const usageRatio = usage != null && quota != null && quota > 0 ? usage / quota : null
-
-  if (persisted === false) {
-    warning =
-      'Persistent storage was denied. The browser may evict IndexedDB under storage pressure — export diagnostics regularly.'
-  } else if (usageRatio != null && usageRatio > 0.8) {
-    warning = `Storage is ${Math.round(usageRatio * 100)}% full. Clear old sessions or free disk space.`
+  let warning: string | null = null
+  if (usageRatio != null && usageRatio > 0.8) {
+    warning = `Local storage is ${Math.round(usageRatio * 100)}% full. Sync now and free disk space so new sales can be saved.`
   }
-
   return { persisted, usage, quota, usageRatio, warning }
 }
 

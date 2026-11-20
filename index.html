@@ -2,21 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0f766e" />
     <meta
-      name="description"
-      content="Offline-first stocktake for a self-hosted shop server."
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' http: https: ws://127.0.0.1:5173 ws://localhost:5173"
     />
-    <title>Stocktake</title>
+    <meta name="description" content="Offline-first point of sale till" />
+    <title>Till</title>
     <script>
       try {
-        if (localStorage.getItem('stocktake.theme') === 'dark') {
-          document.documentElement.classList.add('dark')
-        }
+        if (localStorage.getItem('pos.theme') === 'dark') document.documentElement.classList.add('dark')
       } catch (error) {
-        /* Theme stays light when storage is blocked. */
+        /* theme stays light when storage is blocked */
       }
     </script>
   </head>
